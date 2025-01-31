@@ -37,7 +37,7 @@ const config = {
 }
 
 
-async function tvlV1(api) {
+async function tvl(api) {
   const chain = api.chain
   const { v1StartBlock, graphUrl, safeBlockLimit } = config[chain]
 
