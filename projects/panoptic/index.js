@@ -39,7 +39,7 @@ const config = {
 
 async function tvl(api) {
   const chain = api.chain
-  const { v1StartBlock, graphUrl, safeBlockLimit } = config[chain]
+  const { v1StartBlock, v1point1StartBlock, graphUrl, safeBlockLimit } = config[chain]
 
   const v1PoolDeployedLogs = await getLogs2({ api, target: V1_FACTORY, fromBlock: v1StartBlock, eventAbi: abi.PoolDeployed, })
   const v1point1PoolDeployedLogs = await getLogs2({ api, target: V1_POINT_1_FACTORY, fromBlock: v1point1StartBlock, eventAbi: abi.PoolDeployed, })
