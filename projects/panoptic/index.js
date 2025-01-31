@@ -51,7 +51,7 @@ async function tvl(api) {
 
   const poolData = {}
   const ownerTokens = []
-  uniPools.forEach((pool, i) => {
+  univ3Pools.forEach((pool, i) => {
     // to compute tokens locked in panoptic pools
     ownerTokens.push([[v3token0s[i], v3token1s[i]], v1PoolDeployedLogs[i].poolAddress])
 
