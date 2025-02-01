@@ -2,13 +2,15 @@ const { getLogs2 } = require('../helper/cache/getLogs')
 const { cachedGraphQuery } = require("../helper/cache");
 const { addUniV3LikePosition } = require('../helper/unwrapLPs');
 
-const FACTORY = '0x000000000000010a1DEc6c46371A28A071F8bb01'
-const SFPM = '0x0000000000000DEdEDdD16227aA3D836C5753194'
-
+const V1_FACTORY = '0x000000000000010a1DEc6c46371A28A071F8bb01'
+const V1_POINT_1_FACTORY = '0x0000000000000CF008e9bf9D01f8306029724c80'
+const V1_SFPM = '0x0000000000000DEdEDdD16227aA3D836C5753194'
+const V1_POINT_1_SFPM = '0x0000000000000aAbbcfCA8100a9ee78124E97B33'
+const V4_POOL_MANAGER = '0x000000000004444c5dc75cB358380D2e3dE08A90'
 
 const SFPMChunksQuery = `
 query SFPMChunks($lastId: ID, $block: Int) {
-  chunks(first: 1000 
+  chunks(first: 1000
     block: {number: $block}
     where: {and: [{id_gt: $lastId}, { netLiquidity_gt: 100}]}
     ) {
@@ -27,8 +29,9 @@ const abi = {
 
 const config = {
   ethereum: {
-    graphUrl: 'https://api.goldsky.com/api/public/project_cl9gc21q105380hxuh8ks53k3/subgraphs/panoptic-subgraph-mainnet/1.0.2/gn',
-    startBlock: 21389983,
+    graphUrl: 'https://api.goldsky.com/api/public/project_cl9gc21q105380hxuh8ks53k3/subgraphs/panoptic-subgraph-mainnet/prod/gn',
+    v1StartBlock: 21389983,
+    v1point1StartBlock: 21745190,
     safeBlockLimit: 50
   }
 }
@@ -36,27 +39,33 @@ const config = {
 
 async function tvl(api) {
   const chain = api.chain
-  const { startBlock, graphUrl, safeBlockLimit } = config[chain]
+  const { v1StartBlock, v1point1StartBlock, graphUrl, safeBlockLimit } = config[chain]
 
-  const poolDeployedLogs = await getLogs2({ api, target: FACTORY, fromBlock: startBlock, eventAbi: abi.PoolDeployed, })
-  const uniPools = poolDeployedLogs.map(log => log.uniswapPool.toLowerCase())
-  const token0s = await api.multiCall({ abi: 'address:token0', calls: uniPools })
-  const token1s = await api.multiCall({ abi: 'address:token1', calls: uniPools })
-  const slot0s = await api.multiCall({ abi: 'function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16 observationIndex, uint16 observationCardinality, uint16 observationCardinalityNext, uint8 feeProtocol, bool unlocked)', calls: uniPools })
+  const v1PoolDeployedLogs = await getLogs2({ api, target: V1_FACTORY, fromBlock: v1StartBlock, eventAbi: abi.PoolDeployed, })
+
+  const univ3Pools = v1PoolDeployedLogs.map(log => log.uniswapPool.toLowerCase())
+
+  const v3token0s = await api.multiCall({ abi: 'address:token0', calls: univ3Pools })
+  const v3token1s = await api.multiCall({ abi: 'address:token1', calls: univ3Pools })
+  const v3slot0s = await api.multiCall({ abi: 'function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16 observationIndex, uint16 observationCardinality, uint16 observationCardinalityNext, uint8 feeProtocol, bool unlocked)', calls: univ3Pools })
 
   const poolData = {}
   const ownerTokens = []
-  uniPools.forEach((pool, i) => {
-    // to compte tokens locked in panoptic pools
-    ownerTokens.push([[token0s[i], token1s[i]], poolDeployedLogs[i].poolAddress])
+  univ3Pools.forEach((pool, i) => {
+    // to compute tokens locked in panoptic pools
+    ownerTokens.push([[v3token0s[i], v3token1s[i]], v1PoolDeployedLogs[i].poolAddress])
 
     // to compute value locked in uni v3 pools
     poolData[pool] = {
-      token0: token0s[i],
-      token1: token1s[i],
-      tick: slot0s[i].tick,
+      token0: v3token0s[i],
+      token1: v3token1s[i],
+      tick: v3slot0s[i].tick,
     }
   })
+
+  const v1point1PoolDeployedLogs = await getLogs2({ api, target: V1_POINT_1_FACTORY, fromBlock: v1point1StartBlock, eventAbi: abi.PoolDeployed, })
+  const univ4Pools = v1point1PoolDeployedLogs.map(log => log.uniswapPool.toLowerCase())
+  // TODO: get the token0, token1 and slot0 for each univ4pool and then also push those onto ownerTokens and poolData
 
   await api.sumTokens({ ownerTokens })
 
@@ -64,6 +73,8 @@ async function tvl(api) {
   chunks.forEach(chunk => {
     const { token0, token1, tick, } = poolData[chunk.pool.id.toLowerCase()] ?? {}
     if (!tick) return;
+    // The chunk may be from Uni v3 or v4, but it seems that so long as we can pass in the required args,
+    // that distinction doesn't matter:
     addUniV3LikePosition({ api, token0, token1, tick, liquidity: chunk.netLiquidity, tickUpper: chunk.tickUpper, tickLower: chunk.tickLower, })
   })
 }
